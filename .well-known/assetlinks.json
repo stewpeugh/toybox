@@ -1,1 +1,10 @@
+Keep this file and signing.keystore in a safe place. You'll need these files if you want to upload future versions of your PWA to the Google Play Store.
 
+Key store file: signing.keystore
+Key store password: l_g6Xtw4y4Yj
+Key alias: my-key-alias
+Key password: l_g6Xtw4y4Yj
+Signer's full name: Toy Chest Admin
+Signer's organization: Toy Chest Arcade
+Signer's organizational unit: Engineering
+Signer's country code: US
