@@ -8,6 +8,11 @@
 <meta name="theme-color" content="#4A2F63">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="manifest" href="manifest.json" />
+<script type="module">
+  import 'https://cdn.jsdelivr.net/npm/@pwabuilder/pwaupdate';
+  document.body.appendChild(document.createElement('pwa-update'));
+</script>
 <style>
   :root{
     --paper:#FFF7EA;
