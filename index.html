@@ -1409,15 +1409,20 @@ resize();
     flex:1 1 auto;min-height:0;
   }
   canvas{display:block;width:100%;height:100%;}
-  #reset{
+  #topBar{
     position:absolute;top:7px;right:8px;z-index:3;
+    display:flex;gap:8px;
+  }
+  #reset,#soundBtn{
     background:var(--cream);color:var(--ink);
     border:3px solid var(--ink);border-radius:12px;
     font:inherit;font-weight:700;font-size:13px;padding:4px 10px;
     box-shadow:0 3px 0 rgba(0,0,0,.35);cursor:pointer;
   }
-  #reset:active{transform:translateY(2px);box-shadow:0 1px 0 rgba(0,0,0,.35);}
-  #reset:focus-visible{outline:3px solid var(--leaf-pale);outline-offset:2px;}
+  #soundBtn{font-size:15px;padding:4px 9px;line-height:1;}
+  #reset:active,#soundBtn:active{transform:translateY(2px);box-shadow:0 1px 0 rgba(0,0,0,.35);}
+  #reset:focus-visible,#soundBtn:focus-visible{outline:3px solid var(--leaf-pale);outline-offset:2px;}
+  #soundBtn.muted{opacity:.62;}
   #banner{
     position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
     pointer-events:none;opacity:0;transition:opacity .25s;z-index:2;
@@ -1461,7 +1466,10 @@ resize();
 <div id="stage">
   <div id="screen">
     <canvas id="game"></canvas>
-    <button id="reset">Start over</button>
+    <div id="topBar">
+      <button id="soundBtn" aria-label="Toggle music" aria-pressed="true">&#128266;</button>
+      <button id="reset">Start over</button>
+    </div>
     <div id="banner"><span id="bannerText"></span></div>
   </div>
   <div id="pad">
@@ -1524,6 +1532,99 @@ function tone(f,dur,type,vol,to){
     g.gain.exponentialRampToValueAtTime(0.001,n+dur);
     o.connect(g);g.connect(actx.destination);o.start(n);o.stop(n+dur);
   }catch(e){}
+}
+
+/* ---------- background music (gentle rainy-forest chiptune loop) ---------- */
+var masterGain=null, musicMuted=false, musicStarted=false;
+var NOTE_FREQ={
+  C4:261.63,D4:293.66,E4:329.63,F4:349.23,G4:392.00,A4:440.00,B4:493.88,
+  C5:523.25,D5:587.33,E5:659.25,F5:698.46,G5:783.99,A5:880.00,B5:987.77
+};
+var leadMelody=[
+  ['E5',1],['G5',0.5],['A5',0.5],['G5',1],['E5',1],
+  ['D5',1],['C5',1],[null,1],
+  ['C5',0.5],['D5',0.5],['E5',1],['D5',1],
+  ['C5',1],['A4',1],['G4',2],
+  ['E5',1],['G5',0.5],['A5',0.5],['G5',1],['E5',1],
+  ['F5',1],['E5',1],[null,1],
+  ['D5',0.5],['E5',0.5],['F5',1],['E5',1],
+  ['D5',1],['C5',1],['C5',2]
+];
+var bassLine=[
+  ['C4',2],['A4',2],['F4',2],['G4',2],
+  ['C4',2],['A4',2],['F4',2],['G4',2],
+  ['C4',2],['A4',2],['F4',2],['G4',2],
+  ['F4',2],['G4',2],['C4',2],['C4',2]
+];
+var BEAT_SEC=60/96;
+var leadIdx=0,bassIdx=0,leadNextT=0,bassNextT=0;
+
+function ensureAudio(){
+  if(!actx){var AC=window.AudioContext||window.webkitAudioContext; if(!AC)return false; actx=new AC();}
+  if(actx.state==='suspended')actx.resume();
+  if(!masterGain){
+    masterGain=actx.createGain();
+    masterGain.gain.value=musicMuted?0:0.5;
+    masterGain.connect(actx.destination);
+  }
+  return true;
+}
+
+function scheduleMusicNote(freq,startTime,durSec,type,peak){
+  if(freq==null||!isFinite(freq))return;
+  try{
+    var o=actx.createOscillator(),g=actx.createGain(),f=actx.createBiquadFilter();
+    f.type='lowpass'; f.frequency.value=(type==='square')?2800:1800; f.Q.value=0.7;
+    o.type=type;
+    o.frequency.setValueAtTime(freq,startTime);
+    g.gain.setValueAtTime(0,startTime);
+    g.gain.linearRampToValueAtTime(peak,startTime+0.03);
+    g.gain.setValueAtTime(peak,startTime+durSec*0.6);
+    g.gain.linearRampToValueAtTime(0,startTime+durSec*0.95);
+    o.connect(f);f.connect(g);g.connect(masterGain);
+    o.start(startTime);o.stop(startTime+durSec+0.05);
+  }catch(e){}
+}
+
+function startMusic(){
+  if(musicStarted)return;
+  if(!ensureAudio())return;
+  musicStarted=true;
+  leadNextT=actx.currentTime+0.1;
+  bassNextT=leadNextT;
+}
+
+function pumpMusic(){
+  if(!musicStarted||!actx)return;
+  var horizon=actx.currentTime+0.2;
+  while(leadNextT<horizon){
+    var note=leadMelody[leadIdx%leadMelody.length];
+    var dur=note[1]*BEAT_SEC;
+    scheduleMusicNote(note[0]?NOTE_FREQ[note[0]]:null,leadNextT,dur*0.9,'square',0.13);
+    leadNextT+=dur; leadIdx++;
+  }
+  while(bassNextT<horizon){
+    var bn=bassLine[bassIdx%bassLine.length];
+    var bdur=bn[1]*BEAT_SEC;
+    scheduleMusicNote(bn[0]?NOTE_FREQ[bn[0]]:null,bassNextT,bdur*0.9,'triangle',0.11);
+    bassNextT+=bdur; bassIdx++;
+  }
+}
+
+function toggleMusic(){
+  musicMuted=!musicMuted;
+  if(masterGain&&actx){
+    var now=actx.currentTime;
+    masterGain.gain.cancelScheduledValues(now);
+    masterGain.gain.setValueAtTime(masterGain.gain.value,now);
+    masterGain.gain.linearRampToValueAtTime(musicMuted?0:0.5, now+0.3);
+  }
+  var btn=document.getElementById('soundBtn');
+  if(btn){
+    btn.innerHTML = musicMuted? '&#128263;' : '&#128266;';
+    btn.classList.toggle('muted',musicMuted);
+    btn.setAttribute('aria-pressed', musicMuted? 'false':'true');
+  }
 }
 
 /* ---------- layout ---------- */
@@ -2162,7 +2263,7 @@ function draw(){
   drawHeader();
 }
 
-function loop(){update();draw();requestAnimationFrame(loop);}
+function loop(){update();draw();pumpMusic();requestAnimationFrame(loop);}
 
 /* ---------- input ---------- */
 function hold(el,onDown,onUp){
@@ -2224,6 +2325,15 @@ function restart(){
   tone(420,0.12,'square',0.07,300);
 }
 document.getElementById('reset').addEventListener('click',restart);
+
+document.getElementById('soundBtn').addEventListener('click', function(){
+  if(!musicStarted) startMusic();
+  toggleMusic();
+});
+window.addEventListener('pointerdown', function firstTap(){
+  startMusic();
+  window.removeEventListener('pointerdown', firstTap);
+}, {once:true});
 
 window.addEventListener('resize',resize);
 window.addEventListener('orientationchange',function(){setTimeout(resize,120);});
