@@ -1,4 +1,4 @@
-const CACHE_NAME = "toy-chest-arcade-v2";
+const CACHE_NAME = "toy-chest-arcade-v3";
 const ASSETS = [
   "./index.html",
   "./manifest.json",

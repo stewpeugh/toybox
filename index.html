@@ -731,6 +731,7 @@ function drawClassic(g, x, y){
   }
   .tool:active{transform:translateY(2px);}
   .tool:focus-visible{outline:3px solid var(--gold);outline-offset:2px;}
+  .tool.muted{opacity:.62;}
 
   #banner{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;opacity:0;transition:opacity .25s;padding:16px;}
   #banner.show{opacity:1;}
@@ -792,6 +793,7 @@ function drawClassic(g, x, y){
     <div id="tools">
       <button class="tool" id="bSwitch">Switch hunter</button>
       <button class="tool" id="bReset">Start over</button>
+      <button class="tool" id="soundBtn" aria-label="Toggle music" aria-pressed="true">&#128266;</button>
     </div>
     <div id="banner"><span id="bannerText">The Honmoon is golden!</span></div>
     <div id="pick">
@@ -951,6 +953,98 @@ function blip(freq, dur, type='sine', vol=.12){
     o.connect(g); g.connect(audio.destination);
     o.start(); o.stop(audio.currentTime+dur);
   }catch(e){}
+}
+
+/* ---------- background music (upbeat kpop dance loop) ---------- */
+let masterGain = null, musicMuted = false, musicStarted = false;
+const NOTE_FREQ = {
+  C3:130.81,D3:146.83,F3:174.61,G3:196.00,A3:220.00,
+  C4:261.63,D4:293.66,E4:329.63,F4:349.23,G4:392.00,A4:440.00,B4:493.88,
+  C5:523.25,D5:587.33,E5:659.25,F5:698.46,G5:783.99,A5:880.00,B5:987.77
+};
+// bright, syncopated hook over a I-V-vi-IV progression -- the classic upbeat pop/kpop chorus shape
+const leadMelody = [
+  ['C5',0.5],['E5',0.5],['G5',0.5],['E5',0.5],['C5',0.5],['E5',0.5],['G5',1],
+  ['B4',0.5],['D5',0.5],['G5',0.5],['D5',0.5],['B4',0.5],['D5',0.5],['G5',1],
+  ['C5',0.5],['E5',0.5],['A5',0.5],['E5',0.5],['C5',0.5],['E5',0.5],['A5',1],
+  ['A4',0.5],['C5',0.5],['F5',0.5],['C5',0.5],['A4',0.5],['C5',0.5],['F5',0.5],['G5',0.5]
+];
+// driving root-fifth eighth-note pulse -- the dance-pop bass energy
+const bassLine = [
+  ['C3',0.5],['G3',0.5],['C3',0.5],['G3',0.5],['C3',0.5],['G3',0.5],['C3',0.5],['G3',0.5],
+  ['G3',0.5],['D4',0.5],['G3',0.5],['D4',0.5],['G3',0.5],['D4',0.5],['G3',0.5],['D4',0.5],
+  ['A3',0.5],['E4',0.5],['A3',0.5],['E4',0.5],['A3',0.5],['E4',0.5],['A3',0.5],['E4',0.5],
+  ['F3',0.5],['C4',0.5],['F3',0.5],['C4',0.5],['F3',0.5],['C4',0.5],['F3',0.5],['G3',0.5]
+];
+const BEAT_SEC = 60/126;
+let leadIdx = 0, bassIdx = 0, leadNextT = 0, bassNextT = 0;
+
+function ensureAudio(){
+  if(!audio){ const AC = window.AudioContext||window.webkitAudioContext; if(!AC) return false; audio = new AC(); }
+  if(audio.state === 'suspended') audio.resume();
+  if(!masterGain){
+    masterGain = audio.createGain();
+    masterGain.gain.value = musicMuted ? 0 : 0.5;
+    masterGain.connect(audio.destination);
+  }
+  return true;
+}
+
+function scheduleMusicNote(freq, startTime, durSec, type, peak){
+  if(freq == null || !isFinite(freq)) return;
+  try{
+    const o = audio.createOscillator(), g = audio.createGain(), f = audio.createBiquadFilter();
+    f.type = 'lowpass'; f.frequency.value = (type === 'sawtooth') ? 3200 : 2200; f.Q.value = 0.7;
+    o.type = type;
+    o.frequency.setValueAtTime(freq, startTime);
+    g.gain.setValueAtTime(0, startTime);
+    g.gain.linearRampToValueAtTime(peak, startTime+0.02);
+    g.gain.setValueAtTime(peak, startTime+durSec*0.55);
+    g.gain.linearRampToValueAtTime(0, startTime+durSec*0.9);
+    o.connect(f); f.connect(g); g.connect(masterGain);
+    o.start(startTime); o.stop(startTime+durSec+0.05);
+  }catch(e){}
+}
+
+function startMusic(){
+  if(musicStarted) return;
+  if(!ensureAudio()) return;
+  musicStarted = true;
+  leadNextT = audio.currentTime+0.1;
+  bassNextT = leadNextT;
+}
+
+function pumpMusic(){
+  if(!musicStarted || !audio) return;
+  const horizon = audio.currentTime+0.2;
+  while(leadNextT < horizon){
+    const note = leadMelody[leadIdx % leadMelody.length];
+    const dur = note[1]*BEAT_SEC;
+    scheduleMusicNote(note[0] ? NOTE_FREQ[note[0]] : null, leadNextT, dur*0.85, 'sawtooth', 0.12);
+    leadNextT += dur; leadIdx++;
+  }
+  while(bassNextT < horizon){
+    const bn = bassLine[bassIdx % bassLine.length];
+    const bdur = bn[1]*BEAT_SEC;
+    scheduleMusicNote(bn[0] ? NOTE_FREQ[bn[0]] : null, bassNextT, bdur*0.8, 'square', 0.1);
+    bassNextT += bdur; bassIdx++;
+  }
+}
+
+function toggleMusic(){
+  musicMuted = !musicMuted;
+  if(masterGain && audio){
+    const now = audio.currentTime;
+    masterGain.gain.cancelScheduledValues(now);
+    masterGain.gain.setValueAtTime(masterGain.gain.value, now);
+    masterGain.gain.linearRampToValueAtTime(musicMuted ? 0 : 0.5, now+0.3);
+  }
+  const btn = document.getElementById('soundBtn');
+  if(btn){
+    btn.innerHTML = musicMuted ? '&#128263;' : '&#128266;';
+    btn.classList.toggle('muted', musicMuted);
+    btn.setAttribute('aria-pressed', musicMuted ? 'false' : 'true');
+  }
 }
 
 /* ---------- sprites ---------- */
@@ -1164,6 +1258,15 @@ function restart(){
 document.getElementById('bReset').addEventListener('click', restart);
 document.getElementById('bSwitch').addEventListener('click', openPick);
 
+document.getElementById('soundBtn').addEventListener('click', function(){
+  if(!musicStarted) startMusic();
+  toggleMusic();
+});
+window.addEventListener('pointerdown', function firstTap(){
+  startMusic();
+  window.removeEventListener('pointerdown', firstTap);
+}, {once:true});
+
 /* ---------- physics ---------- */
 
 function update(){
@@ -1370,7 +1473,7 @@ function draw(){
 
 /* ---------- loop ---------- */
 resize();
-(function loop(){ update(); draw(); requestAnimationFrame(loop); })();
+(function loop(){ update(); draw(); pumpMusic(); requestAnimationFrame(loop); })();
 <\/script>
 </body>
 </html>
